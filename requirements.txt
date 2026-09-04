@@ -8,3 +8,4 @@ lightgbm>=4.3.0
 pandas>=2.2.0
 scikit-learn>=1.4.0
 tenacity>=8.2.0
+tzdata>=2024.1  # zoneinfo needs this on Windows (no system IANA tz database there)

@@ -1,5 +1,8 @@
 """
-Ranks Vizard clips so we only publish the best N.
+Ranks Vizard clips so the best ones can be prioritized into prime-time
+upload slots. Every clip Vizard returns gets uploaded eventually -- this
+module no longer cuts the list down to a top N, it just orders it
+best-first so scheduler.py knows which clips deserve the 12pm-8pm slots.
 
 Vizard's /project/query response gives each clip a `viralScore` (string,
 0-10) plus `videoMsDuration` and `transcript`. There's no hook score or
@@ -65,7 +68,7 @@ def _model_score(clip: dict, model) -> float:
 
 
 def rank_clips(clips: list[dict]) -> list[dict]:
-    """Returns clips sorted best-first, each with a 'rank_score' field added."""
+    """Returns EVERY clip, sorted best-first, each with a 'rank_score' field added."""
     model = None
     if lgb is not None and os.path.exists(config.MODEL_PATH):
         try:
@@ -82,5 +85,13 @@ def rank_clips(clips: list[dict]) -> list[dict]:
 
 
 def select_top_n(clips: list[dict], n: int | None = None) -> list[dict]:
-    n = n or config.TOP_N_CLIPS_PER_VIDEO
-    return rank_clips(clips)[:n]
+    """
+    Back-compat helper. n=None or n<=0 means "no cap" -- returns every
+    ranked clip (this is now the default behavior end to end; nothing
+    calls this with a positive n anymore, but it's kept for scripts that
+    still want a manual cap).
+    """
+    ranked = rank_clips(clips)
+    if not n or n <= 0:
+        return ranked
+    return ranked[:n]

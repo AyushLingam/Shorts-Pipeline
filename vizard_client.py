@@ -3,12 +3,21 @@ Thin wrapper around the Vizard.ai API (docs.vizard.ai), confirmed as of
 mid-2026. Requires a Vizard Pro plan or higher for API access.
 
 Base URL: https://elb-api.vizard.ai/hvizard-server-front/open-api/v1
-Auth: header "VIZARDAI_API_KEY: <your key>" (not a Bearer token — Vizard
+Auth: header "VIZARDAI_API_KEY: <your key>" (not a Bearer token -- Vizard
 uses a custom header name).
 
   POST /project/create        -> submit a video, returns projectId
   GET  /project/query/{id}    -> poll for clips; code 1000 = still
                                   processing, 2000 = done
+
+clipModel ("v1"/"v2"): matches the "Select model" picker in the Vizard web
+app (v2 = "AI will think longer and go deeper... fewer clips, more
+complete", charged at a higher credit rate). This isn't spelled out in the
+crawled public API docs, so if Vizard ever changes/removes this field,
+submit_video() below still works (unknown fields are typically ignored by
+most JSON APIs) but silently stops actually selecting v2 -- worth
+spot-checking your Vizard account's credit deduction after the first run
+(v2 should cost noticeably more than v1 for the same video).
 """
 import time
 import requests
@@ -64,13 +73,17 @@ class VizardClient:
             "highlightSwitch": config.VIZARD_HIGHLIGHT_SWITCH,
             "removeSilenceSwitch": config.VIZARD_REMOVE_SILENCE,
         }
+        if config.VIZARD_CLIP_MODEL:
+            payload["clipModel"] = config.VIZARD_CLIP_MODEL
+        if config.VIZARD_MAX_CLIP_NUMBER:
+            payload["maxClipNumber"] = config.VIZARD_MAX_CLIP_NUMBER
         if config.VIZARD_TEMPLATE_ID:
             try:
                 payload["templateId"] = int(config.VIZARD_TEMPLATE_ID)
             except ValueError:
                 raise VizardError(
                     f"VIZARD_TEMPLATE_ID in .env is '{config.VIZARD_TEMPLATE_ID}', "
-                    f"which isn't a valid number. Vizard template IDs are numeric — "
+                    f"which isn't a valid number. Vizard template IDs are numeric -- "
                     f"double check the ID you copied from the Template tab."
                 )
         resp = requests.post(
@@ -114,9 +127,13 @@ class VizardClient:
 
         return data.get("videos", [])
 
-    def wait_for_clips(self, project_id: str, poll_seconds: int = 30,
-                       timeout_seconds: int = 3600) -> list[dict]:
-        """Poll until clips are ready. Vizard recommends polling every 30s."""
+    def wait_for_clips(self, project_id: str, poll_seconds: int = 60,
+                       timeout_seconds: int = 10800) -> list[dict]:
+        """
+        Poll until clips are ready. Default timeout is 3 hours (up from
+        Vizard's old ~1h-is-plenty assumption) because clipModel="v2"
+        explicitly trades speed for depth ("AI will think longer").
+        """
         deadline = time.time() + timeout_seconds
         while time.time() < deadline:
             clips = self.get_clips(project_id)

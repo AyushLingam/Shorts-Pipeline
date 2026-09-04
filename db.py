@@ -1,4 +1,4 @@
-"""SQLite storage for clips, uploads, and performance data (Phase 7)."""
+"""SQLite storage for clips, uploads, the upload queue, and performance data."""
 import sqlite3
 import json
 from contextlib import contextmanager
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS performance (
 
 CREATE TABLE IF NOT EXISTS source_videos (
     -- Tracks which of YOUR long-form uploads have already been sent to
-    -- Vizard, so the channel watcher never processes the same VOD twice.
+    -- Vizard, so the channel watcher never picks the same VOD twice.
     video_id   TEXT PRIMARY KEY,
     video_url  TEXT,
     title      TEXT,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS batch_winners (
 
 CREATE TABLE IF NOT EXISTS pending_submissions (
     -- A video already submitted to Vizard (project created, credits
-    -- spent) but not yet fully processed into uploaded clips. If a run
+    -- spent) but not yet fully processed into queued clips. If a run
     -- crashes after submission (e.g. network drop while polling), the
     -- next run resumes checking THIS project instead of resubmitting the
     -- video and wasting credits twice.
@@ -69,6 +69,26 @@ CREATE TABLE IF NOT EXISTS pending_submissions (
     video_url   TEXT,
     title       TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS upload_queue (
+    -- Every clip Vizard returns for a picked source video, downloaded and
+    -- waiting for its turn to actually be uploaded to YouTube. This is
+    -- what lets scripts/fetch_and_queue.py (every 3 days) run instantly
+    -- while scripts/drain_upload_queue.py (daily) trickles uploads out
+    -- at YouTube's ~6/day quota, each with the schedule.py-assigned
+    -- publishAt time.
+    queue_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    clip_id             TEXT,
+    source_project_id   TEXT,
+    title               TEXT,
+    local_file_path     TEXT,
+    target_publish_time TEXT,          -- RFC3339 UTC, e.g. 2026-09-05T16:00:00Z
+    status              TEXT DEFAULT 'queued',  -- queued | uploaded | failed
+    youtube_video_id    TEXT,
+    error_message       TEXT,
+    created_at          TEXT DEFAULT (datetime('now')),
+    updated_at          TEXT DEFAULT (datetime('now'))
 );
 """
 
@@ -272,3 +292,70 @@ def get_pending_submission(video_id: str) -> str | None:
 def clear_pending_submission(video_id: str):
     with get_conn() as conn:
         conn.execute("DELETE FROM pending_submissions WHERE video_id = ?", (video_id,))
+
+
+# ---- Upload queue (spaced private uploads, drained daily) ----
+
+def enqueue_clip(clip_id: str, source_project_id: str, title: str,
+                  local_file_path: str, target_publish_time_utc: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO upload_queue
+               (clip_id, source_project_id, title, local_file_path, target_publish_time)
+               VALUES (?, ?, ?, ?, ?)""",
+            (clip_id, source_project_id, title, local_file_path, target_publish_time_utc),
+        )
+        return cur.lastrowid
+
+
+def get_max_queued_publish_time() -> str | None:
+    """
+    The latest target_publish_time already queued (any status). Used so a
+    new fetch_and_queue.py run continues the schedule after whatever the
+    previous batch already claimed, instead of colliding with it.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(target_publish_time) AS max_time FROM upload_queue"
+        ).fetchone()
+        return row["max_time"] if row and row["max_time"] else None
+
+
+def get_next_to_upload(limit: int) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM upload_queue
+               WHERE status = 'queued'
+               ORDER BY target_publish_time ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_queued() -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM upload_queue WHERE status = 'queued'"
+        ).fetchone()
+        return row["n"]
+
+
+def mark_queue_uploaded(queue_id: int, youtube_video_id: str):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE upload_queue
+               SET status = 'uploaded', youtube_video_id = ?, updated_at = datetime('now')
+               WHERE queue_id = ?""",
+            (youtube_video_id, queue_id),
+        )
+
+
+def mark_queue_failed(queue_id: int, error_message: str):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE upload_queue
+               SET status = 'failed', error_message = ?, updated_at = datetime('now')
+               WHERE queue_id = ?""",
+            (error_message[:2000], queue_id),
+        )

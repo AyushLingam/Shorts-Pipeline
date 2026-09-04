@@ -1,8 +1,8 @@
 # Shorts Automation Pipeline
 
 Every 3 days, picks the highest-viewed video on your channel that hasn't
-been clipped yet, sends it through Vizard.ai (v2 model) for every clip it
-can produce, and gets all of them onto YouTube as private uploads spaced
+been clipped yet, sends it through Vizard.ai for every clip it can
+produce, and gets all of them onto YouTube as private uploads spaced
 ~4 hours apart (never more than 5), with the best-rated clips landing in
 the 12pm-8pm window and everything spread across enough days to respect
 YouTube's daily upload quota.
@@ -15,7 +15,7 @@ Task Scheduler (every 3 days)
       ▼
 scripts/fetch_and_queue.py
       │  channel_watcher.py   → picks the highest-viewed unclipped video
-      │  vizard_client.py     → submits it to Vizard (clipModel=v2), waits for every clip
+      │  vizard_client.py     → submits it to Vizard, waits for every clip
       │  clip_ranker.py       → scores/sorts ALL clips, best first
       │  scheduler.py         → assigns each a target publish time (peak slots to the best)
       │  downloads every clip locally, writes rows into db.py's upload_queue table
@@ -124,11 +124,6 @@ heuristic if `models/ranker.txt` exists.
   way some competitors do — `clip_ranker.py`'s heuristic uses `viralScore`
   (0–10, normalized) plus duration fit, and derives word count from the
   clip's transcript for the ML feature set.
-- `VIZARD_CLIP_MODEL=v2` matches the "Select model" picker in the Vizard
-  web app but isn't documented in Vizard's crawled public API docs as of
-  this writing — after your first real run, spot-check Vizard's credit
-  deduction for that project (v2 should cost noticeably more than v1 for
-  the same video, ~1.25x in our testing) to confirm it actually took.
 - Thumbnail auto-generation (Phase 9) is stubbed in `youtube_uploader.py`
   as a hook — plugging in an actual model (e.g. picking a high-motion
   frame, or an image-gen call) is left for you to choose since it's a

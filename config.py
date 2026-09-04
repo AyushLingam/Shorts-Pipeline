@@ -75,13 +75,10 @@ class Config:
     VIZARD_EMOJI_SWITCH = int(os.getenv("VIZARD_EMOJI_SWITCH", "0"))
     VIZARD_HIGHLIGHT_SWITCH = int(os.getenv("VIZARD_HIGHLIGHT_SWITCH", "0"))
     VIZARD_REMOVE_SILENCE = int(os.getenv("VIZARD_REMOVE_SILENCE", "0"))
-    # "v1" = faster, more clips. "v2" = AI thinks longer/goes deeper, fewer
-    # but more complete clips, charged at a higher credit rate (seen ~1.25x
-    # in the Vizard dashboard, e.g. 23 credits on v1 vs 29 on v2 for the same
-    # video). Confirmed against the Vizard web app's model picker, not just
-    # the public API docs -- if Vizard ever renames this field, submit_video()
-    # will raise a clear VizardError rather than failing silently.
-    VIZARD_CLIP_MODEL = os.getenv("VIZARD_CLIP_MODEL", "v2")
+    # Left blank by default -- Vizard uses its own default model. Set to
+    # "v1" or "v2" in .env if you ever want to force one (matches the
+    # "Select model" picker in the Vizard web app).
+    VIZARD_CLIP_MODEL = os.getenv("VIZARD_CLIP_MODEL", "")
     # Ask Vizard for as many clips as it's willing to return (1-100).
     VIZARD_MAX_CLIP_NUMBER = int(os.getenv("VIZARD_MAX_CLIP_NUMBER", "100"))
 

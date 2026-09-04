@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+client_secret.json
+token.json
+shorts.db
+*.log
+pipeline_log.txt
+tracking_log.txt
+winner_log.txt
+dir
+findstr
+shorts-pipeline
